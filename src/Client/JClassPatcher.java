@@ -34,6 +34,7 @@ import org.objectweb.asm.tree.ClassNode;
 import org.objectweb.asm.tree.FieldInsnNode;
 import org.objectweb.asm.tree.FieldNode;
 import org.objectweb.asm.tree.IincInsnNode;
+import org.objectweb.asm.tree.InsnList;
 import org.objectweb.asm.tree.InsnNode;
 import org.objectweb.asm.tree.IntInsnNode;
 import org.objectweb.asm.tree.JumpInsnNode;
@@ -41,6 +42,7 @@ import org.objectweb.asm.tree.LabelNode;
 import org.objectweb.asm.tree.LdcInsnNode;
 import org.objectweb.asm.tree.MethodInsnNode;
 import org.objectweb.asm.tree.MethodNode;
+import org.objectweb.asm.tree.TryCatchBlockNode;
 import org.objectweb.asm.tree.VarInsnNode;
 import org.objectweb.asm.util.Printer;
 import org.objectweb.asm.util.Textifier;
@@ -732,6 +734,14 @@ public class JClassPatcher {
           methodNode.instructions.insertBefore(
               findNode,
               new MethodInsnNode(Opcodes.INVOKESTATIC, "Game/Client", "init", "()V", false));
+
+          // Camera view distance crash fix
+          if (insnNode.getOpcode() == Opcodes.SIPUSH) {
+            IntInsnNode call = (IntInsnNode) insnNode;
+            if (call.operand == 15000) {
+              call.operand = 32767;
+            }
+          }
         }
       }
       if (methodNode.name.equals("dj") && methodNode.desc.equals("()V")) {
@@ -2182,6 +2192,9 @@ public class JClassPatcher {
 
       // Patch crash due to exceeding max polygons
       if (methodNode.name.equals("qi") && methodNode.desc.equals("()V")) {
+
+        safeify(methodNode);
+
         Iterator<AbstractInsnNode> insnNodeList = methodNode.instructions.iterator();
         int times = 0;
         while (insnNodeList.hasNext()) {
@@ -2639,5 +2652,27 @@ public class JClassPatcher {
       }
     }
     return instance;
+  }
+
+  /**
+   * Wraps a given {@link MethodNode} in a try-catch block which simply returns,
+   * to prevent application crashes.
+   *
+   * @author Stormy
+   */
+  private static void safeify(MethodNode methodNode) {
+    LabelNode method_start = new LabelNode();
+    LabelNode method_end = new LabelNode();
+    methodNode.instructions.insert(method_start);
+    methodNode.instructions.add(method_end);
+
+    LabelNode handler = new LabelNode();
+    InsnList list = new InsnList();
+    list.add(handler);
+    list.add(new InsnNode(Opcodes.RETURN));
+    methodNode.instructions.add(list);
+
+    TryCatchBlockNode n = new TryCatchBlockNode(method_start, method_end, handler, "java/lang/RuntimeException");
+    methodNode.tryCatchBlocks.add(n);
   }
 }
